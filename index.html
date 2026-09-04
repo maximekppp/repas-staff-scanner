@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f5f5">
+  <title>Repas Staff - Scanner</title>
+
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      color: #222;
+    }
+
+    .conteneur {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 32px;
+      margin: 20px 0 24px;
+    }
+
+    .carte {
+      background: #fff;
+      border-radius: 16px;
+      padding: 22px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.12);
+    }
+
+    .instruction {
+      text-align: center;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 18px;
+    }
+
+    #reader {
+      width: 100%;
+      max-width: 520px;
+      margin: 0 auto;
+      overflow: hidden;
+      border-radius: 12px;
+    }
+
+    .message {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 10px;
+      text-align: center;
+      font-size: 18px;
+      font-weight: 700;
+      display: none;
+    }
+
+    .message.erreur {
+      display: block;
+      background: #fdecec;
+      color: #a40018;
+    }
+
+    .message.info {
+      display: block;
+      background: #eef3f8;
+      color: #222;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 18px;
+      padding: 16px;
+      border: 0;
+      border-radius: 10px;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #222;
+      color: white;
+    }
+
+    .secours {
+      margin-top: 14px;
+      text-align: center;
+      font-size: 14px;
+      color: #666;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="conteneur">
+    <h1>🍴 Repas Staff</h1>
+
+    <div class="carte">
+      <div class="instruction">
+        Présentez votre QR Code devant la caméra
+      </div>
+
+      <div id="reader"></div>
+
+      <div id="message" class="message"></div>
+
+      <button id="relancer" type="button" style="display:none;" onclick="demarrerScanner()">
+        RELANCER LE SCANNER
+      </button>
+
+      <div class="secours">
+        En cas de problème caméra, ouvrez directement la Web App Repas Staff.
+      </div>
+    </div>
+  </div>
+
+<script>
+  const WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzjWi2hgaDp63rP2FbymZQUpUi26BAQQ6X_AsF2v0i_J-8Htais4XrdCrbdFnOZdBFH/exec';
+
+  let scanner = null;
+  let traitementEnCours = false;
+
+  function afficherMessage(texte, type = 'info') {
+    const zone = document.getElementById('message');
+    zone.className = 'message ' + type;
+    zone.textContent = texte;
+  }
+
+  function masquerMessage() {
+    const zone = document.getElementById('message');
+    zone.className = 'message';
+    zone.textContent = '';
+  }
+
+  function extraireBadge(contenu) {
+    const texte = String(contenu || '').trim();
+
+    if (!texte) return '';
+
+    // QR actuels : URL de la Web App avec ?badge=...
+    try {
+      const url = new URL(texte);
+      const badge = url.searchParams.get('badge');
+
+      if (badge) {
+        return badge.trim();
+      }
+    } catch (e) {
+      // Compatibilité avec un ancien QR qui contiendrait seulement le CodeQR.
+    }
+
+    // Nos CodeQR font 12 caractères hexadécimaux.
+    if (/^[A-F0-9]{12}$/i.test(texte)) {
+      return texte.toUpperCase();
+    }
+
+    return '';
+  }
+
+  async function arreterScanner() {
+    if (!scanner) return;
+
+    try {
+      await scanner.stop();
+    } catch (e) {
+      // Scanner peut déjà être arrêté.
+    }
+
+    try {
+      scanner.clear();
+    } catch (e) {
+      // Rien.
+    }
+
+    scanner = null;
+  }
+
+  async function qrDetecte(contenu) {
+    if (traitementEnCours) return;
+
+    traitementEnCours = true;
+
+    const badge = extraireBadge(contenu);
+
+    if (!badge) {
+      afficherMessage("Ce QR Code n'est pas un badge Repas Staff.", 'erreur');
+      traitementEnCours = false;
+      return;
+    }
+
+    afficherMessage("Badge reconnu. Ouverture du repas…", 'info');
+
+    await arreterScanner();
+
+    window.location.href =
+      WEBAPP_URL +
+      '?badge=' +
+      encodeURIComponent(badge);
+  }
+
+  async function demarrerScanner() {
+    traitementEnCours = false;
+    masquerMessage();
+
+    document.getElementById('relancer').style.display = 'none';
+
+    if (scanner) {
+      await arreterScanner();
+    }
+
+    scanner = new Html5Qrcode('reader');
+
+    try {
+      await scanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 260, height: 260 },
+          aspectRatio: 1.0
+        },
+        qrDetecte,
+        () => {
+          // Les images sans QR sont ignorées.
+        }
+      );
+    } catch (erreur) {
+      console.error(erreur);
+      afficherMessage(
+        "Impossible d'utiliser la caméra. Vérifiez l'autorisation caméra dans Chrome.",
+        'erreur'
+      );
+      document.getElementById('relancer').style.display = 'block';
+    }
+  }
+
+  window.addEventListener('load', demarrerScanner);
+</script>
+
+</body>
+</html>
